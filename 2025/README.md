@@ -46,7 +46,7 @@ Why used:
 #### Simulation / State Machines
 Deterministic simulations where state evolves step-by-step.
 
-Days: 1, 4
+Days: 1, 4, 7
 
 Techniques:
 - 
