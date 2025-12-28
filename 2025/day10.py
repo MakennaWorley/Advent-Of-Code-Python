@@ -1,7 +1,10 @@
 # day 10
+
+# Referenced this reddit: https://www.reddit.com/r/adventofcode/comments/1pk87hl/2025_day_10_part_2_bifurcate_your_way_to_victory/
+
 import re
-import heapq
 from collections import deque
+from functools import lru_cache
 
 LINE_RE = re.compile(r"\[([.#]+)\]")
 CURLY_RE = re.compile(r"\{([^}]*)\}")
@@ -66,74 +69,111 @@ def parse_line2(line: str):
     m = CURLY_RE.search(line)
     reqs = [int(x.strip()) for x in m.group(1).split(",") if x.strip() != ""]
 
-    return reqs, buttons
+    return len(reqs), reqs, buttons
 
 def min_presses_joltage(reqs, buttons) -> int:
+    reqs = tuple(reqs)
     m = len(reqs)
 
-    btns = []
+    cleaned = []
+    seen = set()
     for idxs in buttons:
-        s = tuple(sorted(set(i for i in idxs if 0 <= i < m)))
-        if s:
-            btns.append(s)
+        s = tuple(sorted({i for i in idxs if 0 <= i < m}))
 
-    btns = list(set(btns))  # dedupe
+        if s and s not in seen:
+            seen.add(s)
+            cleaned.append(s)
+
+    btns = cleaned
+
     if not btns:
         return 0 if all(r == 0 for r in reqs) else None
 
+    hit = [False] * m
+
+    for b in btns:
+        for i in b:
+            hit[i] = True
+
     for i, r in enumerate(reqs):
-        if r > 0 and not any(i in b for b in btns):
+        if r > 0 and not hit[i]:
             return None
 
-    btns.sort(key=len, reverse=True)
+    parity_masks = []
+    for b in btns:
+        pm = 0
+        for i in b:
+            pm |= (1 << i)
+        parity_masks.append(pm)
 
-    btn_sets = [set(b) for b in btns]
-    filtered = []
-    for i, b in enumerate(btn_sets):
-        if any(i != j and b.issubset(btn_sets[j]) for j in range(len(btns))):
-            continue
-        filtered.append(btns[i])
-    btns = filtered
+    desired_parity_mask = 0
 
-    max_hit = max(len(b) for b in btns)
+    for i, r in enumerate(reqs):
+        if r & 1:
+            desired_parity_mask |= (1 << i)
 
-    start = tuple(reqs)
-    if all(v == 0 for v in start):
-        return 0
+    B = len(btns)
 
-    def h(state):
-        mx = max(state)
-        sm = sum(state)
-        return max(mx, (sm + max_hit - 1) // max_hit)
-
-    pq = [(h(start), 0, start)]
-    best = {start: 0}
-
-    while pq:
-        f, g, state = heapq.heappop(pq)
-        if g != best.get(state):
-            continue
+    @lru_cache(maxsize=None)
+    def f(state):
         if all(v == 0 for v in state):
-            return g
+            return 0
 
-        for b in btns:
-            # apply press
-            ns = list(state)
-            changed = False
+        if any(v < 0 for v in state):
+            return 10 ** 18
+
+        want = 0
+        for i, v in enumerate(state):
+            if v & 1:
+                want |= (1 << i)
+
+        best = 10 ** 18
+        counts = [0] * m
+
+        def dfs(j, cur_parity, presses_so_far):
+            nonlocal best
+
+            if presses_so_far >= best:
+                return
+
+            if j == B:
+                if cur_parity != want:
+                    return
+
+                nxt = []
+                for i in range(m):
+                    rem = state[i] - counts[i]
+                    nxt.append(rem // 2)
+
+                rec = f(tuple(nxt))
+                if rec >= 10 ** 18:
+                    return
+                cand = presses_so_far + 2 * rec
+                if cand < best:
+                    best = cand
+                return
+
+            dfs(j + 1, cur_parity, presses_so_far)
+
+            b = btns[j]
+
             for i in b:
-                if ns[i] > 0:
-                    ns[i] -= 1
-                    changed = True
-            if not changed:
-                continue
+                if counts[i] + 1 > state[i]:
+                    break
+            else:
+                # apply
+                for i in b:
+                    counts[i] += 1
+                dfs(j + 1, cur_parity ^ parity_masks[j], presses_so_far + 1)
+                # undo
+                for i in b:
+                    counts[i] -= 1
 
-            ns = tuple(ns)
-            ng = g + 1
-            if ng < best.get(ns, 10**18):
-                best[ns] = ng
-                heapq.heappush(pq, (ng + h(ns), ng, ns))
+        dfs(0, 0, 0)
+        return best
 
-    return None
+    ans = f(reqs)
+    return None if ans >= 10 ** 18 else ans
 
 total = 0
 total2 = 0
@@ -146,6 +186,10 @@ with open("inputs/day10.txt") as f:
         n, target, buttons = parse_line(line)
         ans = min_presses(n, target, buttons)
         total += ans
+
+        m, reqs, btns2 = parse_line2(line)
+        ans2 = min_presses_joltage(reqs, btns2)
+        total2 += ans2
 
 print(total)
 print(total2)
